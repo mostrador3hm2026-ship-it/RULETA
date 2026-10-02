@@ -1,0 +1,222 @@
+<title>Ruleta de Descuentos</title>
+<style>
+  :root { --red:#d90429; --black:#111; --white:#fff; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding-inline:16px; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 30%, #2a2a2a, #000 70%);
+    font-family:"Segoe UI", Arial, sans-serif; color:var(--white); overflow:hidden;
+  }
+  h1 { margin:0 0 6px; font-size:clamp(1.6rem,5vw,2.6rem); letter-spacing:3px; text-transform:uppercase; }
+  h1 span { color:var(--red); }
+  p.sub { margin:0 0 24px; color:#bbb; }
+  .stage { position:relative; width:min(88vw,460px); aspect-ratio:1; }
+  #wheel { width:100%; height:100%; display:block; border-radius:50%; box-shadow:0 0 40px rgba(217,4,41,.5); }
+  .pointer {
+    position:absolute; top:-14px; left:50%; transform:translateX(-50%); z-index:3;
+    width:0; height:0; border-left:20px solid transparent; border-right:20px solid transparent;
+    border-top:42px solid var(--white); filter:drop-shadow(0 3px 4px rgba(0,0,0,.7));
+  }
+  #spin {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:2;
+    width:24%; aspect-ratio:1; border-radius:50%; border:5px solid var(--white);
+    background:var(--red); color:var(--white); font-weight:800; font-size:clamp(.8rem,3.2vw,1.2rem);
+    letter-spacing:1px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.7);
+    transition:transform .15s, background .2s;
+  }
+  #spin:hover:not(:disabled) { transform:translate(-50%,-50%) scale(1.08); background:#ff1a3d; }
+  #spin:disabled { background:#444; cursor:not-allowed; color:#999; }
+  #confetti { position:fixed; inset:0; pointer-events:none; z-index:10; }
+  #overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; z-index:20;
+  }
+  #overlay.show { display:flex; }
+  .modal {
+    background:var(--white); color:var(--black); border:6px solid var(--red); border-radius:18px;
+    padding:32px 28px; text-align:center; max-width:90vw; width:380px; animation:pop .5s cubic-bezier(.2,1.6,.4,1);
+  }
+  .modal h2 { margin:0 0 8px; color:var(--red); font-size:1.8rem; }
+  .modal .prize { font-size:4rem; font-weight:900; margin:8px 0; }
+  .modal button {
+    margin-top:14px; padding:10px 28px; font-size:1rem; font-weight:700; border:0; border-radius:30px;
+    background:var(--black); color:var(--white); cursor:pointer;
+  }
+  .note { margin-top:22px; color:#bbb; min-height:1.4em; }
+  @keyframes pop { from { transform:scale(.3); opacity:0 } to { transform:scale(1); opacity:1 } }
+</style>
+  <h1>Ruleta de <span>Descuentos</span></h1>
+  <p class="sub">¡Tienes una sola oportunidad!</p>
+
+  <div class="stage">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="920" height="920"></canvas>
+    <button id="spin">GIRAR</button>
+  </div>
+  <div class="note" id="note"></div>
+
+  <canvas id="confetti"></canvas>
+
+  <div id="overlay">
+    <div class="modal">
+      <h2>🎉 ¡Felicitaciones! 🎉</h2>
+      <div>Ganaste un descuento de</div>
+      <div class="prize" id="prize"></div>
+      <button id="close">Aceptar</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const prizes = ["5%", "10%", "15%", "5%", "10%", "15%"];
+  const colors = [
+    { bg:"#d90429", fg:"#fff" },
+    { bg:"#111111", fg:"#fff" },
+    { bg:"#ffffff", fg:"#d90429" },
+    { bg:"#d90429", fg:"#fff" },
+    { bg:"#111111", fg:"#fff" },
+    { bg:"#ffffff", fg:"#d90429" }
+  ];
+  const N = prizes.length, SEG = 360 / N;
+  const wheel = document.getElementById("wheel");
+  const ctx = wheel.getContext("2d");
+  const spinBtn = document.getElementById("spin");
+  const note = document.getElementById("note");
+  const overlay = document.getElementById("overlay");
+  const STORE = "ruleta_usada";
+
+  let rotation = 0; // grados, sentido horario
+
+  function drawWheel() {
+    const s = wheel.width, c = s / 2, r = c - 10;
+    ctx.clearRect(0, 0, s, s);
+    ctx.save();
+    ctx.translate(c, c);
+    ctx.rotate(rotation * Math.PI / 180);
+    for (let i = 0; i < N; i++) {
+      const a0 = (i * SEG - 90) * Math.PI / 180;
+      const a1 = ((i + 1) * SEG - 90) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, a0, a1); ctx.closePath();
+      ctx.fillStyle = colors[i].bg; ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = "#fff"; ctx.stroke();
+      ctx.save();
+      ctx.rotate((a0 + a1) / 2);
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillStyle = colors[i].fg;
+      ctx.font = "900 92px 'Segoe UI', Arial";
+      ctx.fillText(prizes[i], r - 40, 0);
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.lineWidth = 14; ctx.strokeStyle = "#fff"; ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---------- Sonido (aplausos con ruido filtrado) ----------
+  function applause(duration = 4) {
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const len = ac.sampleRate * duration;
+      const buf = ac.createBuffer(1, len, ac.sampleRate);
+      const d = buf.getChannelData(0);
+      let env = 0;
+      for (let i = 0; i < len; i++) {
+        if (Math.random() < 0.004) env = 1;          // cada "palmada"
+        env *= 0.9965;
+        const fade = Math.min(1, (len - i) / (ac.sampleRate * 1.2));
+        d[i] = (Math.random() * 2 - 1) * env * fade;
+      }
+      const src = ac.createBufferSource(); src.buffer = buf;
+      const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2200; bp.Q.value = 0.6;
+      const g = ac.createGain(); g.gain.value = 2.2;
+      src.connect(bp).connect(g).connect(ac.destination);
+      src.start();
+    } catch (e) {}
+  }
+
+  // ---------- Confeti ----------
+  const cv = document.getElementById("confetti"), cx = cv.getContext("2d");
+  let parts = [], anim = null;
+  function resize() { cv.width = innerWidth; cv.height = innerHeight; }
+  addEventListener("resize", resize); resize();
+
+  function confetti() {
+    const pal = ["#d90429", "#111111", "#ffffff", "#ff4d6d"];
+    for (let i = 0; i < 220; i++) {
+      const left = i % 2 === 0;
+      parts.push({
+        x: left ? 0 : cv.width, y: cv.height * 0.7,
+        vx: (left ? 1 : -1) * (4 + Math.random() * 12),
+        vy: -(8 + Math.random() * 16),
+        w: 6 + Math.random() * 8, h: 10 + Math.random() * 10,
+        rot: Math.random() * 6, vr: (Math.random() - .5) * .4,
+        color: pal[Math.floor(Math.random() * pal.length)], life: 260 + Math.random() * 100
+      });
+    }
+    if (!anim) loop();
+  }
+  function loop() {
+    cx.clearRect(0, 0, cv.width, cv.height);
+    parts = parts.filter(p => p.life > 0 && p.y < cv.height + 40);
+    for (const p of parts) {
+      p.vy += 0.3; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
+      cx.save(); cx.translate(p.x, p.y); cx.rotate(p.rot);
+      cx.fillStyle = p.color; cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      if (p.color === "#ffffff") { cx.strokeStyle = "#999"; cx.strokeRect(-p.w / 2, -p.h / 2, p.w, p.h); }
+      cx.restore();
+    }
+    if (parts.length) anim = requestAnimationFrame(loop);
+    else { anim = null; cx.clearRect(0, 0, cv.width, cv.height); }
+  }
+
+  // ---------- Lógica ----------
+  function lock(text) {
+    spinBtn.disabled = true;
+    spinBtn.textContent = "USADA";
+    note.textContent = text || "";
+  }
+
+  function finish(idx) {
+    try { localStorage.setItem(STORE, String(idx)); } catch (e) {}
+    lock("Ya usaste tu giro: ganaste " + prizes[idx] + " de descuento.");
+    document.getElementById("prize").textContent = prizes[idx];
+    overlay.classList.add("show");
+    confetti(); applause();
+    setTimeout(confetti, 700); setTimeout(confetti, 1500);
+  }
+
+  let used = false;
+  spinBtn.addEventListener("click", () => {
+    if (used) return;
+    used = true;
+    spinBtn.disabled = true;
+    const idx = Math.floor(Math.random() * N);
+    const offset = 6 + Math.random() * (SEG - 12);       // dentro de la casilla
+    const targetMod = (360 - (idx * SEG + offset)) % 360; // el puntero apunta arriba
+    const startRot = rotation % 360;
+    let delta = targetMod - startRot; if (delta < 0) delta += 360;
+    delta += 360 * (6 + Math.floor(Math.random() * 3));
+    const from = rotation, dur = 5500, t0 = performance.now();
+    (function step(t) {
+      const p = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - p, 4);                  // desaceleración suave
+      rotation = from + delta * e;
+      drawWheel();
+      if (p < 1) requestAnimationFrame(step); else finish(idx);
+    })(t0);
+  });
+
+  document.getElementById("close").addEventListener("click", () => overlay.classList.remove("show"));
+
+  drawWheel();
+  try {
+    const prev = localStorage.getItem(STORE);
+    if (prev !== null) {
+      used = true;
+      const i = Number(prev);
+      rotation = (360 - (i * SEG + SEG / 2)) % 360;
+      drawWheel();
+      lock("Ya usaste tu giro: ganaste " + prizes[i] + " de descuento.");
+    }
+  } catch (e) {}
+})();
+</script>
